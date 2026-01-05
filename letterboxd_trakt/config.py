@@ -1,5 +1,5 @@
 import os
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import yaml
@@ -39,6 +39,7 @@ class Account(BaseModel):
 
 class Config(BaseModel):
     accounts: list[Account] = []
+    last_successful_run: datetime | None = None
 
     def dump(self):
         return self.model_dump()

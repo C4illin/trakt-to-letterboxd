@@ -1,6 +1,6 @@
+import os
 import time
 from pathlib import Path
-from typing import Dict
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -9,10 +9,9 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.chrome.service import Service as ChromeService
-from webdriver_manager.chrome import ChromeDriverManager
 
 from . import console
-from .config import Account, Config
+from .config import Account
 
 
 def get_csv_path(filename: str) -> Path:
@@ -22,7 +21,7 @@ def get_csv_path(filename: str) -> Path:
 
 
 def setup_driver(headless: bool = False) -> webdriver.Chrome:
-    """Configure and return a Chrome WebDriver"""
+    """Configure and return a Chrome/Chromium WebDriver"""
     console.print("Setting up Chrome WebDriver...", style="blue")
     
     options = ChromeOptions()
@@ -30,21 +29,32 @@ def setup_driver(headless: bool = False) -> webdriver.Chrome:
     if headless:
         options.add_argument("--headless=new")
     
-    # Options communes pour la stabilité
+    # Stability options
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
     
-    # Désactiver les notifications
-    prefs = {
-        "profile.default_content_setting_values.notifications": 2
-    }
+    # Disable notifications
+    prefs = {"profile.default_content_setting_values.notifications": 2}
     options.add_experimental_option("prefs", prefs)
     
-    # Use webdriver-manager to automatically manage ChromeDriver
-    service = ChromeService(ChromeDriverManager().install())
+    # Use system Chromium if available (Docker), otherwise use webdriver-manager
+    chromedriver_path = os.getenv("CHROMEDRIVER_PATH")
+    chrome_bin = os.getenv("CHROME_BIN")
+    
+    if chrome_bin:
+        options.binary_location = chrome_bin
+    
+    if chromedriver_path and Path(chromedriver_path).exists():
+        console.print("Using system chromedriver", style="dim")
+        service = ChromeService(executable_path=chromedriver_path)
+    else:
+        console.print("Using webdriver-manager", style="dim")
+        from webdriver_manager.chrome import ChromeDriverManager
+        service = ChromeService(ChromeDriverManager().install())
+    
     driver = webdriver.Chrome(service=service, options=options)
     driver.implicitly_wait(10)
     

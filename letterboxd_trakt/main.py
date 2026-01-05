@@ -39,6 +39,9 @@ def run():
                 headless = os.getenv("HEADLESS_IMPORT", "true").lower() == "true"
                 import_to_letterboxd(account, headless=headless)
 
+        config.last_successful_run = datetime.now()
+        config.save()
+        
         console.print(
             f"Export completed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             style="green",

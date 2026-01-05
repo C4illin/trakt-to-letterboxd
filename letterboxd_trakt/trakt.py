@@ -1,4 +1,4 @@
-import time
+"""Trakt OAuth authentication module."""
 
 from trakt import core
 from trakt.api import TokenAuth
@@ -9,61 +9,115 @@ from . import console
 core.AUTH_METHOD = core.DEVICE_AUTH
 
 
-def trakt_init(config, account, max_retries=5, retry_delay=5):
-    trakt_config = config_factory()
+def create_trakt_config(account, with_tokens: bool = True):
+    """Create a fresh trakt config object."""
+    config = config_factory()
+    config.CLIENT_ID = account.trakt_client_id
+    config.CLIENT_SECRET = account.trakt_client_secret
+    
+    if with_tokens:
+        config.OAUTH_TOKEN = account.internal.trakt_oauth.token
+        config.OAUTH_REFRESH = account.internal.trakt_oauth.refresh
+        config.OAUTH_EXPIRES_AT = account.internal.trakt_oauth.expires_at
+    else:
+        config.OAUTH_TOKEN = None
+        config.OAUTH_REFRESH = None
+        config.OAUTH_EXPIRES_AT = None
+    
+    return config
 
-    # set trakt globals
-    trakt_config.CLIENT_ID = account.trakt_client_id
-    trakt_config.CLIENT_SECRET = account.trakt_client_secret
-    trakt_config.OAUTH_TOKEN = account.internal.trakt_oauth.token
-    trakt_config.OAUTH_REFRESH = account.internal.trakt_oauth.refresh
-    trakt_config.OAUTH_EXPIRES_AT = account.internal.trakt_oauth.expires_at
 
+def clear_invalid_tokens(config, account):
+    """Clear invalid tokens from config and save."""
+    console.print("Clearing invalid OAuth tokens from config...", style="yellow")
+    account.internal.trakt_oauth.token = None
+    account.internal.trakt_oauth.refresh = None
+    account.internal.trakt_oauth.expires_at = None
+    config.save()
+
+
+def save_tokens(config, account, trakt_config):
+    """Save OAuth tokens from trakt_config to account and persist to file."""
+    account.internal.trakt_oauth.token = trakt_config.OAUTH_TOKEN
+    account.internal.trakt_oauth.refresh = trakt_config.OAUTH_REFRESH
+    account.internal.trakt_oauth.expires_at = trakt_config.OAUTH_EXPIRES_AT
+    config.save()
+
+
+def validate_existing_tokens(config, account, trakt_config) -> bool:
+    """Try to validate and refresh existing OAuth tokens."""
+    console.print("Validating existing OAuth tokens...", style="blue")
+    
     try:
         client = core.api()
-
         auth: TokenAuth = client.auth
         auth.config = trakt_config
         _, token = auth.get_token()
 
-        if token:
-            account.internal.trakt_oauth.token = trakt_config.OAUTH_TOKEN
-            account.internal.trakt_oauth.refresh = trakt_config.OAUTH_REFRESH
-            account.internal.trakt_oauth.expires_at = trakt_config.OAUTH_EXPIRES_AT
+        if not token:
+            console.print("Token validation returned None.", style="yellow")
+            return False
+
+        # Update config with potentially refreshed tokens
+        save_tokens(config, account, trakt_config)
+        
+        # Test the token with a real API call
+        # get_token() may return the old token even if refresh failed
+        console.print("Testing token with API call...", style="blue")
+        test_response = client.get('users/me')
+        
+        if test_response:
+            console.print("OAuth tokens validated successfully!", style="green")
             return True
-    except Exception:
-        console.print_exception()
+        
+        console.print("API test returned empty response.", style="yellow")
+        return False
+        
+    except Exception as e:
+        console.print(f"Token validation failed: {e}", style="yellow")
+        return False
 
-    retries = 0
-    while retries < max_retries:
-        start = time.time()
 
-        try:
-            device_auth(config=trakt_config)
+def run_device_auth(config, account) -> bool:
+    """Run device authentication flow.
+    
+    Displays a code for the user to enter at https://trakt.tv/activate.
+    The library handles polling internally until user validates or timeout.
+    """
+    trakt_config = create_trakt_config(account, with_tokens=False)
+    
+    console.print(
+        "\n[bold cyan]Trakt Device Authentication[/bold cyan]\n"
+        "Visit [link=https://trakt.tv/activate]https://trakt.tv/activate[/link] "
+        "and enter the code shown below.\n",
+        style="cyan",
+    )
+    
+    try:
+        device_auth(config=trakt_config)
+        save_tokens(config, account, trakt_config)
+        console.print("Signed in to Trakt successfully!", style="bold green")
+        return True
+    except Exception as e:
+        console.print(f"Authentication failed: {e}", style="bold red")
+        return False
 
-            console.print("Signed in to Trakt", style="dark_green")
 
-            # store oauth data
-            account.internal.trakt_oauth.token = trakt_config.OAUTH_TOKEN
-            account.internal.trakt_oauth.refresh = trakt_config.OAUTH_REFRESH
-            account.internal.trakt_oauth.expires_at = trakt_config.OAUTH_EXPIRES_AT
+def trakt_init(config, account) -> bool:
+    """Initialize Trakt authentication.
+    
+    Attempts to use existing tokens, refreshing if needed.
+    Falls back to device authentication if tokens are invalid.
+    """
+    has_existing_tokens = account.internal.trakt_oauth.token is not None
 
-            config.save()
-
+    if has_existing_tokens:
+        trakt_config = create_trakt_config(account, with_tokens=True)
+        
+        if validate_existing_tokens(config, account, trakt_config):
             return True
-        except Exception:
-            console.print_exception()
+        
+        clear_invalid_tokens(config, account)
+        console.print("Tokens invalid. Starting device authentication...", style="yellow")
 
-        elapsed = time.time() - start
-        retries += 1
-        remaining_delay = max(0, retry_delay - elapsed)
-
-        console.print(
-            f"Failed to initialise Trakt (attempt {retries}/{max_retries}), retrying in {remaining_delay:.1f} seconds...",
-            style="dark_red",
-        )
-
-        time.sleep(remaining_delay)
-
-    console.print("Max retries reached. Trakt initialization failed.", style="bold red")
-    return False
+    return run_device_auth(config, account)

@@ -173,16 +173,15 @@ def upload_csv_to_letterboxd(driver: webdriver.Chrome, csv_file_path: Path) -> b
         file_input.send_keys(absolute_path)
         
         console.print("File uploaded, waiting for processing...", style="blue")
-        time.sleep(4)
         
         # Chercher le bouton d'import (c'est un lien <a> avec la classe submit-matched-films)
         console.print("Looking for import button...", style="dim")
         
         try:
-            import_button = WebDriverWait(driver, 5).until(
+            import_button = WebDriverWait(driver, 30).until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, "a.submit-matched-films"))
             )
-            console.print(f"Found import button", style="dim")
+            console.print("Found import button", style="dim")
         except TimeoutException:
             console.print("Could not find import button", style="yellow")
             console.print("The file may need manual review on Letterboxd", style="yellow")

@@ -15,16 +15,18 @@ Automatically sync your Trakt movies to Letterboxd:
 Duplicate `config.template.yml` to `config.yml` at the root:
 
 ```yaml
-accounts:
-  - letterboxd_username: your_username
-    letterboxd_password: your_password
-    trakt_client_id: your_client_id
-    trakt_client_secret: your_client_secret
-    internal: # filled automatically after first auth
-      trakt_oauth:
-        token: 
-        refresh: 
-        expires_at: 
+letterboxd_username: your_username
+letterboxd_password: your_password
+trakt_client_id: your_client_id
+trakt_client_secret: your_client_secret
+
+# internal is filled automatically - do not edit manually
+internal:
+  trakt_oauth:
+    token:
+    refresh:
+    expires_at:
+  last_successful_run:
 ```
 
 To get `trakt_client_id` and `trakt_client_secret`:

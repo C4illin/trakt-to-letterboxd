@@ -1,5 +1,5 @@
 import os
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -24,22 +24,17 @@ class TraktOAuth(BaseModel):
     expires_at: int | None = None
 
 
-class AccountInternal(BaseModel):
+class Internal(BaseModel):
     trakt_oauth: TraktOAuth = TraktOAuth()
-    last_sync_date: date | None = None
-
-
-class Account(BaseModel):
-    letterboxd_username: str
-    letterboxd_password: str | None = None
-    trakt_client_id: str
-    trakt_client_secret: str
-    internal: AccountInternal = AccountInternal()
+    last_successful_run: datetime | None = None
 
 
 class Config(BaseModel):
-    accounts: list[Account] = []
-    last_successful_run: datetime | None = None
+    letterboxd_username: str = ""
+    letterboxd_password: str | None = None
+    trakt_client_id: str = ""
+    trakt_client_secret: str = ""
+    internal: Internal = Internal()
 
     def dump(self):
         return self.model_dump()
@@ -51,14 +46,11 @@ class Config(BaseModel):
     @staticmethod
     def load(path: Path = CFG_PATH):
         if not path.exists():
-            template_config = Config()
-            template_config.accounts.append(
-                Account(
-                    letterboxd_username="your_letterboxd_username",
-                    letterboxd_password="your_letterboxd_password",
-                    trakt_client_id="your_trakt_client_id",
-                    trakt_client_secret="your_trakt_client_secret",
-                )
+            template_config = Config(
+                letterboxd_username="your_letterboxd_username",
+                letterboxd_password="your_letterboxd_password",
+                trakt_client_id="your_trakt_client_id",
+                trakt_client_secret="your_trakt_client_secret",
             )
             template_config.save()
 

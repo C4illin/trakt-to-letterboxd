@@ -6,12 +6,12 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.chrome.service import Service as ChromeService
 
 from . import console
-from .config import Account
+from .config import Config
 
 
 def get_csv_path(filename: str) -> Path:
@@ -99,7 +99,7 @@ def login_to_letterboxd(driver: webdriver.Chrome, username: str, password: str) 
             submit_button = WebDriverWait(driver, 5).until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']"))
             )
-            console.print(f"Found submit button", style="dim")
+            console.print("Found submit button", style="dim")
         except TimeoutException:
             console.print("Could not find submit button with any known selector", style="red")
             console.print("Page source snippet:", style="yellow")
@@ -218,12 +218,12 @@ def upload_csv_to_letterboxd(driver: webdriver.Chrome, csv_file_path: Path) -> b
         return False
 
 
-def import_to_letterboxd(account: Account, headless: bool = False) -> bool:
+def import_to_letterboxd(config: Config, headless: bool = False) -> bool:
     """Main import function to upload export.csv to Letterboxd"""
-    console.print(f"Starting import for Letterboxd account: {account.letterboxd_username}", style="purple4")
+    console.print(f"Starting import for Letterboxd account: {config.letterboxd_username}", style="purple4")
     
     # Vérifier que le mot de passe est configuré
-    if not account.letterboxd_password:
+    if not config.letterboxd_password:
         console.print("Letterboxd password not configured in config.yml", style="red")
         return False
     
@@ -233,7 +233,7 @@ def import_to_letterboxd(account: Account, headless: bool = False) -> bool:
         driver = setup_driver(headless=headless)
         
         # Login
-        if not login_to_letterboxd(driver, account.letterboxd_username, account.letterboxd_password):
+        if not login_to_letterboxd(driver, config.letterboxd_username, config.letterboxd_password):
             return False
         
         # Upload CSV
@@ -259,6 +259,5 @@ if __name__ == "__main__":
     from .config import load_config
     
     config = load_config()
-    if config and config.accounts:
-        account = config.accounts[0]
-        import_to_letterboxd(account, headless=False)
+    if config:
+        import_to_letterboxd(config, headless=False)

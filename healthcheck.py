@@ -38,7 +38,7 @@ def main():
         print("UNHEALTHY: Cannot load config")
         sys.exit(1)
     
-    if not config.last_successful_run:
+    if not config.internal.last_successful_run:
         # No successful run yet - could be first startup
         # Consider healthy if container just started
         print("WARNING: No successful run recorded yet")
@@ -47,7 +47,7 @@ def main():
     cron_schedule = os.getenv("CRON_SCHEDULE", "0 * * * *")
     expected_interval = get_expected_interval(cron_schedule)
     
-    time_since_last_run = datetime.now() - config.last_successful_run
+    time_since_last_run = datetime.now() - config.internal.last_successful_run
     
     if time_since_last_run > expected_interval:
         print(f"UNHEALTHY: Last run was {time_since_last_run} ago (expected < {expected_interval})")

@@ -6,7 +6,7 @@ from trakt import core
 from trakt.users import User
 
 from . import console
-from .config import Account
+from .config import Config
 
 
 def convert_trakt_datetime_str(rated_at: str) -> datetime.datetime:
@@ -212,10 +212,10 @@ def compare_and_get_new_entries(new_merged_df: pd.DataFrame) -> pd.DataFrame:
         return new_merged_df.drop('_key', axis=1)
 
 
-def export_all_trakt_data(account: Account) -> bool:
+def export_all_trakt_data(config: Config) -> bool:
     """Export all CSV files: ratings, watched, merged, export
     Return True if export.csv is not empty, False otherwise"""
-    console.print(f"Starting export for Trakt account: {account.letterboxd_username}", style="purple4")
+    console.print(f"Starting export for Trakt account: {config.letterboxd_username}", style="purple4")
     
     exported_files = {}
     

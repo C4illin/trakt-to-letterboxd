@@ -20,26 +20,25 @@ def run():
             console.print("Config failed to load", style="dark_red")
             return
 
-        if len(config.accounts) == 0:
-            console.print("No accounts found in config.yml", style="dark_red")
+        if not config.trakt_client_id or not config.letterboxd_username:
+            console.print("Config not properly configured", style="dark_red")
             return
 
         auto_import = os.getenv("AUTO_IMPORT", "false").lower() == "true"
 
-        for account in config.accounts:
-            if not trakt_init(config, account):
-                console.print("Failed to log in to Trakt account", style="dark_red")
-                continue
+        if not trakt_init(config):
+            console.print("Failed to log in to Trakt account", style="dark_red")
+            return
 
-            data_to_import = export_all_trakt_data(account)
+        data_to_import = export_all_trakt_data(config)
 
-            # Auto-import to Letterboxd if enabled
-            if auto_import and data_to_import:
-                console.print("\nAuto-import is enabled, starting Letterboxd import...", style="cyan")
-                headless = os.getenv("HEADLESS_IMPORT", "true").lower() == "true"
-                import_to_letterboxd(account, headless=headless)
+        # Auto-import to Letterboxd if enabled
+        if auto_import and data_to_import:
+            console.print("\nAuto-import is enabled, starting Letterboxd import...", style="cyan")
+            headless = os.getenv("HEADLESS_IMPORT", "true").lower() == "true"
+            import_to_letterboxd(config, headless=headless)
 
-        config.last_successful_run = datetime.now()
+        config.internal.last_successful_run = datetime.now()
         config.save()
         
         console.print(

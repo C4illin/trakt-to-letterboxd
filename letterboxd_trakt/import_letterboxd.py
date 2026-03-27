@@ -1,14 +1,9 @@
+import asyncio
 import os
-import time
+import subprocess
 from pathlib import Path
 
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
-from selenium.webdriver.chrome.options import Options as ChromeOptions
-from selenium.webdriver.chrome.service import Service as ChromeService
+import zendriver as zd
 
 from . import console
 from .config import Config
@@ -20,24 +15,18 @@ def get_csv_path(filename: str) -> Path:
     return csv_path / filename
 
 
-def dismiss_cookie_consent(driver: webdriver.Chrome) -> None:
-    """Dismiss the Google Funding Choices cookie consent dialog if present"""
+async def dismiss_cookie_consent(page) -> None:
     try:
-        consent_button = WebDriverWait(driver, 3).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, ".fc-cta-consent"))
-        )
-        consent_button.click()
-        time.sleep(1)
-    except TimeoutException:
-        pass
+        btn = await page.select(".fc-cta-consent", timeout=10)
+        await btn.click()
+        await asyncio.sleep(1)
     except Exception as e:
         console.print(f"Could not dismiss cookie consent: {e}", style="dim")
 
 
-def hide_ad_overlays(driver: webdriver.Chrome) -> None:
-    """Hide ad overlays that might block button clicks"""
+async def hide_ad_overlays(page) -> None:
     try:
-        driver.execute_script("""
+        await page.evaluate("""
             var bottomRail = document.getElementById('pw-oop-bottom_rail');
             if (bottomRail) bottomRail.style.display = 'none';
             
@@ -55,188 +44,129 @@ def hide_ad_overlays(driver: webdriver.Chrome) -> None:
         console.print(f"Could not hide ad overlays: {e}", style="dim")
 
 
-def setup_driver(headless: bool = False) -> webdriver.Chrome:
-    """Configure and return a Chrome/Chromium WebDriver"""
-    options = ChromeOptions()
-    
-    if headless:
-        options.add_argument("--headless=new")
-    
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option('useAutomationExtension', False)
-    
-    prefs = {"profile.default_content_setting_values.notifications": 2}
-    options.add_experimental_option("prefs", prefs)
-    
-    chromedriver_path = os.getenv("CHROMEDRIVER_PATH")
+async def setup_browser(headless: bool) -> tuple:
+    """Start a browser (and Xvfb in Docker) and return (browser, xvfb)"""
     chrome_bin = os.getenv("CHROME_BIN")
-    
-    if chrome_bin:
-        options.binary_location = chrome_bin
-    
-    if chromedriver_path and Path(chromedriver_path).exists():
-        service = ChromeService(executable_path=chromedriver_path)
-    else:
-        from webdriver_manager.chrome import ChromeDriverManager
-        service = ChromeService(ChromeDriverManager().install())
-    
-    driver = webdriver.Chrome(service=service, options=options)
-    driver.implicitly_wait(10)
-    
-    return driver
+    in_docker = os.getenv("IN_DOCKER", "false").lower() == "true"
+
+    xvfb = None
+    if in_docker:
+        xvfb = subprocess.Popen(["Xvfb", ":99", "-screen", "0", "1920x1080x24"])
+        os.environ["DISPLAY"] = ":99"
+        headless = False
+
+    browser = await zd.start(
+        headless=headless,
+        browser_executable_path=chrome_bin or None,
+        browser_args=["--disable-dev-shm-usage"],
+    )
+    return browser, xvfb
 
 
-def login_to_letterboxd(driver: webdriver.Chrome, username: str, password: str) -> bool:
+async def login_to_letterboxd(browser, username: str, password: str) -> bool:
     """Login to Letterboxd"""
     console.print(f"Logging in to Letterboxd as {username}...", style="blue")
-    
     try:
-        driver.get("https://letterboxd.com/sign-in/")
-        time.sleep(3)
-        
-        dismiss_cookie_consent(driver)
-        
-        username_field = WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.ID, "field-username"))
-        )
-        username_field.clear()
-        username_field.send_keys(username)
-        
-        password_field = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.ID, "field-password"))
-        )
-        password_field.clear()
-        password_field.send_keys(password)
-        
-        try:
-            submit_button = WebDriverWait(driver, 5).until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']"))
-            )
-        except TimeoutException:
-            console.print("Could not find submit button", style="red")
-            return False
-        
-        submit_button.click()
-        time.sleep(4)
-        
-        if "sign-in" in driver.current_url:
+        page = await browser.get("https://letterboxd.com/sign-in/")
+        await asyncio.sleep(3)
+        await dismiss_cookie_consent(page)
+
+        username_field = await page.select("#field-username")
+        await username_field.clear_input()
+        await username_field.send_keys(username)
+
+        password_field = await page.select("#field-password")
+        await password_field.clear_input()
+        await password_field.send_keys(password)
+
+        submit = await page.select("button[type='submit']")
+        await submit.click()
+        await asyncio.sleep(4)
+
+        await page
+        if "sign-in" in page.url:
             console.print("Login failed - still on sign-in page", style="red")
             console.print("Check your credentials or if there's a captcha", style="yellow")
             return False
-        
+
         console.print("Successfully logged in to Letterboxd", style="green")
         return True
-        
-    except TimeoutException as e:
-        console.print(f"Login timeout - could not find login fields: {e}", style="red")
-        return False
     except Exception as e:
         console.print(f"Login error: {e}", style="red")
         return False
 
 
-def upload_csv_to_letterboxd(driver: webdriver.Chrome, csv_file_path: Path) -> bool:
+async def upload_csv_to_letterboxd(browser, csv_file_path: Path) -> bool:
     """Upload CSV file to Letterboxd import page"""
     console.print(f"Uploading {csv_file_path.name} to Letterboxd...", style="blue")
-    
     try:
         if not csv_file_path.exists():
             console.print(f"CSV file not found: {csv_file_path}", style="red")
             return False
-        
-        with open(csv_file_path, 'r') as f:
+
+        with open(csv_file_path) as f:
             lines = f.readlines()
-            if len(lines) <= 1:
-                console.print("CSV file is empty (no data rows), skipping import", style="yellow")
-                return True
-        
+        if len(lines) <= 1:
+            console.print("CSV file is empty (no data rows), skipping import", style="yellow")
+            return True
+
         console.print(f"CSV contains {len(lines) - 1} row(s) to import", style="dim")
-        
-        driver.get("https://letterboxd.com/import/")
-        time.sleep(3)
-        
-        dismiss_cookie_consent(driver)
-        
-        file_input = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='file']"))
-        )
-        
-        absolute_path = str(csv_file_path.absolute())
-        file_input.send_keys(absolute_path)
-        
+
+        page = await browser.get("https://letterboxd.com/import/")
+        await asyncio.sleep(3)
+        await dismiss_cookie_consent(page)
+
+        file_input = await page.select("input[type='file']")
+        await file_input.send_file(str(csv_file_path.absolute()))
+
         console.print("File uploaded, waiting for processing...", style="blue")
-        
-        try:
-            import_button = WebDriverWait(driver, 30).until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, "a.submit-matched-films"))
-            )
-        except TimeoutException:
-            console.print("Could not find import button", style="yellow")
-            console.print("The file may need manual review on Letterboxd", style="yellow")
-            return False
-        
-        hide_ad_overlays(driver)
-        
-        driver.execute_script("arguments[0].click();", import_button)
-        console.print("Import button clicked, waiting for completion...", style="blue")
-        time.sleep(5)
-        
-        if "complete" in driver.page_source.lower() or "success" in driver.page_source.lower():
-            console.print("Import completed successfully!", style="green")
-            return True
-        elif "error" in driver.page_source.lower():
-            console.print("Import may have failed, check Letterboxd", style="yellow")
-            return False
-        else:
-            console.print("Import submitted, check Letterboxd to verify", style="yellow")
-            return True
-            
-    except TimeoutException as e:
-        console.print(f"Timeout while uploading file: {e}", style="red")
-        return False
+
+        import_button = await page.select("a.submit-matched-films", timeout=30)
+        await hide_ad_overlays(page)
+        await import_button.click()
+
+        console.print("Import submitted!", style="green")
+        await asyncio.sleep(5)
+        return True
     except Exception as e:
         console.print(f"Upload error: {e}", style="red")
         return False
 
 
+async def _run_async(config: Config, headless: bool) -> bool:
+    browser, xvfb = await setup_browser(headless)
+    try:
+        if not await login_to_letterboxd(browser, config.letterboxd_username, config.letterboxd_password):
+            return False
+
+        csv_path = get_csv_path("export.csv")
+        if not await upload_csv_to_letterboxd(browser, csv_path):
+            return False
+
+        console.print("Import process completed!", style="purple4")
+        return True
+    finally:
+        await browser.stop()
+        if xvfb:
+            xvfb.terminate()
+
+
 def import_to_letterboxd(config: Config, headless: bool = False) -> bool:
     """Main import function to upload export.csv to Letterboxd"""
     console.print(f"Starting import for Letterboxd account: {config.letterboxd_username}", style="purple4")
-    
     if not config.letterboxd_password:
         console.print("Letterboxd password not configured in config.yml", style="red")
         return False
-    
-    driver = None
     try:
-        driver = setup_driver(headless=headless)
-        
-        if not login_to_letterboxd(driver, config.letterboxd_username, config.letterboxd_password):
-            return False
-        
-        csv_path = get_csv_path("export.csv")
-        if not upload_csv_to_letterboxd(driver, csv_path):
-            return False
-        
-        console.print("Import process completed!", style="purple4")
-        return True
-        
+        return asyncio.run(_run_async(config, headless))
     except Exception as e:
         console.print(f"Import failed: {e}", style="red")
         return False
-        
-    finally:
-        if driver:
-            time.sleep(2)
-            driver.quit()
 
 
 if __name__ == "__main__":
     from .config import load_config
-    
+
     config = load_config()
     if config:
         import_to_letterboxd(config, headless=False)

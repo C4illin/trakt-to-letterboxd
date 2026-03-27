@@ -125,9 +125,20 @@ async def upload_csv_to_letterboxd(browser, csv_file_path: Path) -> bool:
         await hide_ad_overlays(page)
         await import_button.click()
 
-        console.print("Import submitted!", style="green")
+        console.print("Import button clicked, waiting for completion...", style="blue")
         await asyncio.sleep(5)
-        return True
+
+        page_source = await page.get_content()
+        page_source_lower = page_source.lower()
+        if "complete" in page_source_lower or "success" in page_source_lower:
+            console.print("Import completed successfully!", style="green")
+            return True
+        elif "error" in page_source_lower:
+            console.print("Import may have failed, check Letterboxd", style="yellow")
+            return False
+        else:
+            console.print("Import submitted, check Letterboxd to verify", style="yellow")
+            return True
     except Exception as e:
         console.print(f"Upload error: {e}", style="red")
         return False

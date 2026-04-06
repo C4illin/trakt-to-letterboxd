@@ -6,7 +6,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: louiscrc/trakt-to-letterboxd
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build-and-push:

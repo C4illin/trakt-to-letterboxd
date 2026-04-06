@@ -5,5 +5,4 @@ rich
 pyyaml
 cronsim
 pydantic
-selenium
-webdriver-manager
+zendriver

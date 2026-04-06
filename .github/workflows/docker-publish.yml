@@ -11,7 +11,7 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    
+
     permissions:
       contents: read
       packages: write
@@ -39,8 +39,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-

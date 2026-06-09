@@ -8,7 +8,9 @@ from pydantic import BaseModel
 from . import console
 
 CFG_PATH = (
-    Path("/app/config/config.yml") if os.getenv("IN_DOCKER", False) else Path("config.yml")
+    Path("/app/config/config.yml")
+    if os.getenv("IN_DOCKER", False)
+    else Path("config.yml")
 )
 CFG_PATH.parent.mkdir(parents=True, exist_ok=True)
 
@@ -31,7 +33,7 @@ class Internal(BaseModel):
 
 class Config(BaseModel):
     letterboxd_username: str = ""
-    letterboxd_password: str | None = None
+    letterboxd_password: str = ""
     trakt_client_id: str = ""
     trakt_client_secret: str = ""
     internal: Internal = Internal()

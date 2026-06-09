@@ -8,12 +8,12 @@ services:
       - TZ=Europe/Zurich
       - IN_DOCKER=true
       - SCHEDULED=true
-      - CRON_SCHEDULE=0 0 * * * 
-      - AUTO_IMPORT=true    
+      - CRON_SCHEDULE=0 0 * * *
+      - AUTO_IMPORT=true
       - HEADLESS_IMPORT=true
     volumes:
-      - ./config.yml:/app/config/config.yml        
-      - ./csv:/csv             
+      - ./config.yml:/app/config/config.yml
+      - ./csv:/csv
     shm_size: 2gb
     healthcheck:
       test: ["CMD", "python", "healthcheck.py"]

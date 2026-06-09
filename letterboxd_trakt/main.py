@@ -7,7 +7,7 @@ from trakt.errors import TraktUnavailable
 
 from . import console
 from .config import load_config
-from .export import export_all_trakt_data
+from .export import commit_merged_data, export_all_trakt_data
 from .import_letterboxd import import_to_letterboxd
 from .trakt import trakt_init
 
@@ -32,11 +32,22 @@ def run():
 
         data_to_import = export_all_trakt_data(config)
 
-        # Auto-import to Letterboxd if enabled
+        # Auto-import to Letterboxd if enabled. Only advance merged.csv once the
+        # entries are actually in Letterboxd, so a failed import retries them on
+        # the next run instead of silently dropping them from the diff.
+        import_succeeded = True
         if auto_import and data_to_import:
             console.print("\nAuto-import is enabled, starting Letterboxd import...", style="cyan")
             headless = os.getenv("HEADLESS_IMPORT", "true").lower() == "true"
-            import_to_letterboxd(config, headless=headless)
+            import_succeeded = import_to_letterboxd(config, headless=headless)
+
+        if import_succeeded:
+            commit_merged_data()
+        else:
+            console.print(
+                "Import failed - keeping previous state so entries are retried next run",
+                style="yellow",
+            )
 
         config.internal.last_successful_run = datetime.now()
         config.save()

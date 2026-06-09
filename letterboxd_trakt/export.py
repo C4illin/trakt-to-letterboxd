@@ -1,7 +1,6 @@
 import datetime
 from pathlib import Path
 import pandas as pd
-
 from trakt import core
 from trakt.users import User
 
@@ -212,12 +211,21 @@ def compare_and_get_new_entries(new_merged_df: pd.DataFrame) -> pd.DataFrame:
         return new_merged_df.drop('_key', axis=1)
 
 
+def commit_merged_data() -> None:
+    """Promote the staged merged data to merged.csv.
+
+    Call this only after the entries have been successfully imported into
+    Letterboxd. Until then merged.csv keeps its previous state so the next run
+    still sees the not-yet-imported entries as new."""
+    pending = get_output_path("merged.pending.csv")
+    if pending.exists():
+        pending.replace(get_output_path("merged.csv"))
+
+
 def export_all_trakt_data(config: Config) -> bool:
     """Export all CSV files: ratings, watched, merged, export
     Return True if export.csv is not empty, False otherwise"""
     console.print(f"Starting export for Trakt account: {config.letterboxd_username}", style="purple4")
-    
-    exported_files = {}
     
     try:
         # 1. Fetch all ratings
@@ -242,21 +250,23 @@ def export_all_trakt_data(config: Config) -> bool:
         watched_file = get_output_path("watched.csv")
         watches_df.to_csv(watched_file, index=False, encoding='utf-8')
         
-        # Export merged.csv
-        merged_file = get_output_path("merged.csv")
+        # Stage merged data to a pending file. It is only promoted to
+        # merged.csv after a successful import (see commit_merged_data), so a
+        # failed import leaves the diff unchanged and the entries get retried.
+        merged_file = get_output_path("merged.pending.csv")
         merged_df.to_csv(merged_file, index=False, encoding='utf-8')
-        
+
         # Export export.csv (new entries only)
         export_file = get_output_path("export.csv")
         export_df.to_csv(export_file, index=False, encoding='utf-8')
-        
+
         console.print("Export completed successfully!", style="purple4")
-        
+
         # Display summary
         console.print("Files exported:", style="green")
         console.print(f"  ratings.csv: {ratings_file}", style="green")
         console.print(f"  watched.csv: {watched_file}", style="green")
-        console.print(f"  merged.csv: {merged_file}", style="green")
+        console.print(f"  merged.pending.csv: {merged_file}", style="green")
         console.print(f"  export.csv: {export_file}", style="green")
         
     except Exception as e:

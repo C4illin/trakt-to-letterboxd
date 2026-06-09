@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -96,6 +97,25 @@ async def login_to_letterboxd(browser, username: str, password: str) -> bool:
         return False
 
 
+async def import_progress_text(page) -> str:
+    """Read the Letterboxd import-summary status line.
+
+    Reports matching progress ("100 films matched from 417 in your file."),
+    readiness ("Matching complete...") and the final result ("Saved 417 films.").
+    """
+    return await page.evaluate(
+        "(document.querySelector('.js-import-progress') || {}).innerText || ''"
+    ) or ""
+
+
+async def submit_button_disabled(page) -> bool:
+    """Whether the import submit button is still disabled (matching in progress)."""
+    return await page.evaluate(
+        "(function(){var b=document.querySelector('a.submit-matched-films');"
+        "return b ? b.classList.contains('import-button-disabled') : true;})()"
+    )
+
+
 async def upload_csv_to_letterboxd(browser, csv_file_path: Path) -> bool:
     """Upload CSV file to Letterboxd import page"""
     console.print(f"Uploading {csv_file_path.name} to Letterboxd...", style="blue")
@@ -121,24 +141,65 @@ async def upload_csv_to_letterboxd(browser, csv_file_path: Path) -> bool:
 
         console.print("File uploaded, waiting for processing...", style="blue")
 
-        import_button = await page.select("a.submit-matched-films", timeout=30)
+        expected_rows = len(lines) - 1
+        await page.select("a.submit-matched-films", timeout=120)
+
+        # Letterboxd matches every film against its database before the import
+        # can run, showing "N films matched from M" with a spinner and keeping
+        # the submit button disabled (class "import-button-disabled") until it
+        # finishes. With hundreds of films this takes a while; clicking too
+        # early does nothing and the import never lands, so wait for the button
+        # to become enabled before clicking it.
+        console.print("Waiting for Letterboxd to finish matching films...", style="blue")
+        match_status = ""
+        for _ in range(120):  # up to ~10 minutes (120 * 5s)
+            match_status = await import_progress_text(page)
+            if await submit_button_disabled(page) is False:
+                break
+            await asyncio.sleep(5)
+        else:
+            console.print(
+                f"Matching did not finish within timeout (last status: "
+                f"{match_status.strip()!r})",
+                style="red",
+            )
+            return False
+
+        console.print(f"Matching complete: {match_status.strip()}", style="green")
         await hide_ad_overlays(page)
+        # Re-select the button now that matching is done, then submit.
+        import_button = await page.select("a.submit-matched-films")
         await import_button.click()
 
         console.print("Import button clicked, waiting for completion...", style="blue")
-        await asyncio.sleep(5)
 
-        page_source = await page.get_content()
-        page_source_lower = page_source.lower()
-        if "complete" in page_source_lower or "success" in page_source_lower:
-            console.print("Import completed successfully!", style="green")
-            return True
-        elif "error" in page_source_lower:
-            console.print("Import may have failed, check Letterboxd", style="yellow")
-            return False
-        else:
-            console.print("Import submitted, check Letterboxd to verify", style="yellow")
-            return True
+        # On success the status line reads e.g. "Saved 417 films." We only
+        # report success once we see that confirmed count; anything else
+        # (timeout, missing element) is treated as a failure so the caller does
+        # not advance merged.csv for an import that never landed.
+        saved_re = re.compile(r"saved\s+(\d+)\s+films?", re.IGNORECASE)
+        status = ""
+        for _ in range(60):  # up to ~5 minutes (60 * 5s)
+            await asyncio.sleep(5)
+            status = await import_progress_text(page)
+            match = saved_re.search(status)
+            if match:
+                saved = int(match.group(1))
+                console.print(f"Import completed: {status.strip()}", style="green")
+                if saved < expected_rows:
+                    console.print(
+                        f"Only {saved} of {expected_rows} rows were saved "
+                        "(some films may not have matched on Letterboxd)",
+                        style="yellow",
+                    )
+                return True
+
+        console.print(
+            f"Import did not confirm completion within timeout "
+            f"(last status: {status.strip()!r})",
+            style="red",
+        )
+        return False
     except Exception as e:
         console.print(f"Upload error: {e}", style="red")
         return False
